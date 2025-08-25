@@ -32,6 +32,9 @@ namespace Ecom.infrastructure
 
 			services.AddScoped<IEmailService, EmailService>();
 
+			//register Iorder serivce 
+			services.AddScoped<IOrderService, OrderService>();
+
 			//register token
 			services.AddScoped<IGenerateToken, GenerateToken>();	
 

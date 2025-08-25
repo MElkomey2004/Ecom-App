@@ -45,7 +45,7 @@ namespace Ecom.infrastructure.Repositories
 			productRepository = new ProductRepositry(_context, _mapper, _imageManagementService);
 			photoRepository = new PhotoRepository(_context);
 			CustomerBasket = new CustomerBasketRepository(redis);
-			Auth = new AuthRepository(_userManager, _emailService, _signInManager , _generateToken);
+			Auth = new AuthRepository(_userManager, _emailService, _signInManager , _generateToken , context);
 		}
 	}
 }

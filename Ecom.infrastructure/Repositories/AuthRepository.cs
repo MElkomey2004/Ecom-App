@@ -3,12 +3,11 @@ using Ecom.Core.Entites;
 using Ecom.Core.interfaces;
 using Ecom.Core.services;
 using Ecom.Core.Sharing;
+using Ecom.infrastructure.Data;
 using Ecom.infrastructure.Repositories.Service;
 using Microsoft.AspNetCore.Identity;
-using System;
-using System.Collections.Generic;
+using Microsoft.EntityFrameworkCore;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace Ecom.infrastructure.Repositories
@@ -19,15 +18,15 @@ namespace Ecom.infrastructure.Repositories
 		private readonly IEmailService _emailService;
 		private readonly SignInManager<AppUser> _signInManager;
 		private readonly IGenerateToken _generateToken;
-
-		public AuthRepository(UserManager<AppUser> userManager, IEmailService emailService, SignInManager<AppUser> signInManager, IGenerateToken generateToken)
+		private readonly AppDbContext context;
+		public AuthRepository(UserManager<AppUser> userManager, IEmailService emailService, SignInManager<AppUser> signInManager, IGenerateToken generateToken, AppDbContext context)
 		{
 			this.userManager = userManager;
 			_emailService = emailService;
 			_signInManager = signInManager;
 			_generateToken = generateToken;
+			this.context = context;
 		}
-
 
 		public async Task<string> RegisterAsync(RegisterDTO registerDTO)
 		{
@@ -52,46 +51,42 @@ namespace Ecom.infrastructure.Repositories
 			};
 
 			var result = await userManager.CreateAsync(user, registerDTO.Password);
-			if (result.Succeeded is not true)
+			if (!result.Succeeded)
 			{
 				return result.Errors.ToList()[0].Description;
 			}
 			string token = await userManager.GenerateEmailConfirmationTokenAsync(user);
-			await SendEmail(user.Email, token, "active", "ActiveEmail", "Please active your email, click on button to active");
+			await SendEmail(user.Email, token, "active", "Active Email", "Please activate your account by clicking the button");
 
 			return "done";
 		}
-
 
 		public async Task SendEmail(string email, string code, string component, string subject, string message)
 		{
 			var result = new EmailDTO(email,
 				"elkomey2004@gmail.com",
-				subject
-				, EmailStringBody.send(email, code, component, message));
+				subject,
+				EmailStringBody.send(email, code, component, message));
 			await _emailService.SendEmail(result);
 		}
 
-
 		public async Task<string> LoginAsync(LoginDTO login)
 		{
-			if(login == null)
+			if (login == null)
 			{
 				return null;
 			}
 
 			var finduser = await userManager.FindByEmailAsync(login.Email);
 
-			if(!finduser.EmailConfirmed)
+			if (!finduser.EmailConfirmed)
 			{
 				string token = await userManager.GenerateEmailConfirmationTokenAsync(finduser);
-				await SendEmail(finduser.Email, token, "active", "ActiveEmail", "Please active your email, click on button to active");
-				return "Please Confirm youre email first, we have sent activate to youre E-mail";
-
-
+				await SendEmail(finduser.Email, token, "active", "Active Email", "Please activate your account by clicking the button");
+				return "Please confirm your email first, we have sent an activation link to your email";
 			}
 
-			var result = await _signInManager.CheckPasswordSignInAsync(finduser , login.Password, lockoutOnFailure: true);
+			var result = await _signInManager.CheckPasswordSignInAsync(finduser, login.Password, lockoutOnFailure: true);
 			if (result.Succeeded)
 			{
 				return _generateToken.GetAndCreateToken(finduser);
@@ -102,21 +97,20 @@ namespace Ecom.infrastructure.Repositories
 		public async Task<bool> SendEmailForForgetPassword(string email)
 		{
 			var finduser = await userManager.FindByEmailAsync(email);
-			if(finduser == null)
+			if (finduser == null)
 			{
 				return false;
 			}
 			var token = await userManager.GeneratePasswordResetTokenAsync(finduser);
-			await SendEmail(finduser.Email, token, "Reset-Password", "Reset Password", "Please active your email, click on button to reset youre password");
+			await SendEmail(finduser.Email, token, "Reset-Password", "Reset Password", "Click the button to reset your password");
 
 			return true;
-
 		}
 
 		public async Task<string> ResetPassword(ResetPasswordDTO resetPassword)
 		{
 			var finduser = await userManager.FindByEmailAsync(resetPassword.Email);
-			if(finduser == null)
+			if (finduser == null)
 			{
 				return null;
 			}
@@ -124,11 +118,9 @@ namespace Ecom.infrastructure.Repositories
 			if (result.Succeeded)
 			{
 				return "Password reset successfully";
-
 			}
 			return result.Errors.ToList()[0].Description;
 		}
-
 
 		public async Task<bool> ActiveAccount(ActiveAccountDTO activeAccount)
 		{
@@ -137,17 +129,51 @@ namespace Ecom.infrastructure.Repositories
 			{
 				return false;
 			}
-			var result = await userManager.ConfirmEmailAsync(finduser, activeAccount.Token);
+
+			var decodedToken = Uri.UnescapeDataString(activeAccount.Token);
+			var result = await userManager.ConfirmEmailAsync(finduser, decodedToken);
 			if (result.Succeeded)
 			{
 				return true;
 			}
 
+			return false;
+		}
 
-			var token = await userManager.GenerateEmailConfirmationTokenAsync(finduser);
-			await SendEmail(finduser.Email, token, "Reset-Password", "Reset Password", "Please active your email, click on button to reset youre password");
+		public async Task<bool> UpdateAddress(string email, Adress adress)
+		{
+			var findUser = await userManager.FindByEmailAsync(email);
+			if (findUser is null)
+			{
+				return false;
+			}
+			var Myaddress = await context.Addresses.AsNoTracking()
+				.FirstOrDefaultAsync(m => m.AppUserId == findUser.Id);
 
-			return false ;
+			if (Myaddress is null)
+			{
+				adress.AppUserId = findUser.Id;
+				await context.Addresses.AddAsync(adress);
+			}
+			else
+			{
+				context.Entry(Myaddress).State = EntityState.Detached;
+				adress.Id = Myaddress.Id;
+				adress.AppUserId = Myaddress.AppUserId;
+				context.Addresses.Update(adress);
+
+			}
+			await context.SaveChangesAsync();
+			return true;
+
+		}
+
+		public async Task<Adress> getUserAddress(string email)
+		{
+			var user = await userManager.FindByEmailAsync(email);
+			var address = await context.Addresses.FirstOrDefaultAsync(m => m.AppUserId == user.Id);
+			return address;
+
 		}
 	}
 }
